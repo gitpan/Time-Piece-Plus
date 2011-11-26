@@ -1,0 +1,29 @@
+---
+abstract: 'Subclass of Time::Piece with some useful method'
+author:
+  - 'Nishibayashi Takuji <takuji {at} senchan.jp>'
+build_requires:
+  ExtUtils::MakeMaker: 6.62
+configure_requires:
+  ExtUtils::MakeMaker: 6.62
+distribution_type: module
+dynamic_config: 1
+generated_by: 'Module::Install version 1.04'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Time-Piece-Plus
+no_index:
+  directory:
+    - inc
+    - t
+    - xt
+requires:
+  Data::Validator: 0
+  Filter::Util::Call: 0
+  Time::Piece: 1.16
+  perl: 5.10.0
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.01
