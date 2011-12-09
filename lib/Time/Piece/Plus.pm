@@ -1,20 +1,66 @@
 package Time::Piece::Plus;
 use strict;
 use warnings;
-use 5.10.0;
+use 5.010;
 
-use parent 'Time::Piece';
+our $VERSION = '0.02';
 
-our $VERSION = '0.01';
+BEGIN {
+    require Time::Piece;
+    require version;
+    unshift @Time::Piece::Plus::ISA, 'Time::Piece';
+    # Object creation bug fix patch for Time::Piece < 1.16
+    my $NEED_PATCH = version::qv($Time::Piece::VERSION) < version::qv("1.16") ? 1 : 0;
+    sub need_patch() {$NEED_PATCH} ## no critic
+}
+
+sub import {
+    my $class  = shift;
+    my $caller = caller;
+    for my $method (qw(localtime gmtime)) {
+        my $code = sub {$class->$method(@_)};
+        {
+            no strict 'refs';
+            *{"$caller\::$method"} = $code; ## no critic
+        }
+    }
+}
 
 use Time::Seconds;
 use Data::Validator;
 
-sub get_object {
-    my ($self, ) = @_;
+sub localtime {
+    my $self = shift;
+    return $self->create_object(1, @_);
+}
 
-    $self = $self->localtime unless ref $self;
-    return $self;
+sub gmtime {
+    my $self = shift;
+    return $self->create_object(0, @_);
+}
+
+sub create_object {
+    my $self = shift;
+    my $is_local = shift;
+
+    my @origin = $is_local ? Time::Piece::localtime(@_) : Time::Piece::gmtime(@_);
+    #If array context, returns time array.
+    return @origin if wantarray;
+
+    my $is_instance = ref $self ? 1 : 0;
+    my $class       = $is_instance ? ref $self : $self;
+    #If instance is broken force fix
+    if(need_patch() && (@origin > 11)) {
+        @origin = (@origin[0..9], $origin[-1]);
+    }
+    bless \@origin, $class;
+}
+
+sub get_object {
+    my $invocant = shift;
+
+    my $object = ref $invocant ? $invocant : $invocant->localtime;
+    return $object;
 }
 
 sub reparse {
@@ -27,20 +73,51 @@ sub reparse {
     $self->strptime($self->strftime($args->{format_string}), $args->{parse_string});
 }
 
+sub get_is_local {
+    my $invocant = shift;
+
+    return ref $invocant ? $invocant->[10] : 1;
+}
+
+sub get_time_diff {
+    my $self = shift;
+    return $self->sec + $self->min * 60 + $self->hour * 3600;
+}
+
+sub get_method_name {
+    my $invocant = shift;
+
+    return $invocant->get_is_local ? 'localtime' : 'gmtime';
+ }
+
 sub yesterday {
-    my ($self, ) = @_;
+    my $invocant = shift;
 
-    $self = $self->get_object;
+    my $self   = $invocant->get_object;
+    my $epoch  = $self->epoch;
+    my $method = $self->get_method_name;
 
-    ($self - ONE_DAY)->truncate(to => 'day');
+    $self->$method($epoch - ONE_DAY - $self->get_time_diff);
 }
 
 sub tomorrow {
-    my ($self, ) = @_;
+    my $invocant = shift;
 
-    $self = $self->get_object;
+    my $self   = $invocant->get_object;
+    my $epoch  = $self->epoch;
+    my $method = $self->get_method_name;
 
-    ($self + ONE_DAY)->truncate(to => 'day');
+    $invocant->$method($epoch + ONE_DAY - $self->get_time_diff);
+}
+
+sub today {
+    my $invocant = shift;
+
+    my $self   = $invocant->get_object;
+    my $epoch  = $self->epoch;
+    my $method = $self->get_method_name;
+
+    $invocant->$method($epoch - $self->get_time_diff);
 }
 
 my %TRUNCATE_FORMAT = (
@@ -69,12 +146,12 @@ sub truncate {
 
 sub parse_mysql_date {
     state $validator = Data::Validator->new(
-        str => {isa => 'Str'},
-        as_localtime => {isa => 'Str', default => 1},
+        str          => {isa => 'Str'},
+        as_localtime => {isa => 'Bool', default => 1},
     )->with(qw(Method));
     my ($class, $args) = $validator->validate(@_);
 
-    return unless $args->{str} && $args->{str} ne "0000-00-00";
+    return if $args->{str} eq "0000-00-00";
 
     my $self = $args->{as_localtime} ? $class->localtime() : $class->gmtime();
     my $parsed = $self->strptime($args->{str}, '%Y-%m-%d');
@@ -85,11 +162,11 @@ sub parse_mysql_date {
 sub parse_mysql_datetime {
     state $validator = Data::Validator->new(
         str => {isa => 'Str'},
-        as_localtime => {isa => 'Str', default => 1},
+        as_localtime => {isa => 'Bool', default => 1},
     )->with(qw(Method));
     my ($class, $args) = $validator->validate(@_);
 
-    return unless $args->{str} && $args->{str} ne "0000-00-00 00:00:00";
+    return if $args->{str} eq "0000-00-00 00:00:00";
 
     my $self = $args->{as_localtime} ? $class->localtime() : $class->gmtime();
     my $parsed = $self->strptime($args->{str}, '%Y-%m-%d %H:%M:%S');
@@ -121,9 +198,13 @@ Time::Piece::Plus - Subclass of Time::Piece with some useful method
 
   use Time::Piece::Plus;
 
+  my $now = localtime();
+  my $today = Time::Piece::Plus->today;
+
   #As class method
-  my $time = Time::Piece::Plus->yesterday;
-  my $tomorrow = Time::Piece::Plus->tomorrow;
+  my $today     = Time::Piece::Plus->today;
+  my $yesterday = Time::Piece::Plus->yesterday;
+  my $tomorrow  = Time::Piece::Plus->tomorrow;
 
   #As instance method
   my $time = Time::Piece::Plus->yesterday;
@@ -151,6 +232,12 @@ Time::Piece::Plus - Subclass of Time::Piece with some useful method
 Time::Piece::Plus is subclass of Time::Piece with some useful method.
 
 =head1 METHODS
+
+=head2 today
+
+If called as a class method returns today.
+Also, if called as an instance method returns the day.
+And time is cut.
 
 =head2 yesterday
 
