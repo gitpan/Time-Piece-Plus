@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use 5.010;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 BEGIN {
     require Time::Piece;
@@ -43,17 +43,24 @@ sub create_object {
     my $self = shift;
     my $is_local = shift;
 
-    my @origin = $is_local ? Time::Piece::localtime(@_) : Time::Piece::gmtime(@_);
-    #If array context, returns time array.
-    return @origin if wantarray;
-
-    my $is_instance = ref $self ? 1 : 0;
-    my $class       = $is_instance ? ref $self : $self;
-    #If instance is broken force fix
-    if(need_patch() && (@origin > 11)) {
-        @origin = (@origin[0..9], $origin[-1]);
+    if (wantarray) {
+        return $is_local ? Time::Piece::localtime(@_) : Time::Piece::gmtime(@_);
     }
-    bless \@origin, $class;
+
+    my @origin;
+    #If instance is broken force fix
+    if (need_patch()) {
+        @origin =  $is_local ? Time::Piece::localtime(@_) : Time::Piece::gmtime(@_);
+        if (@origin > 11) {
+            @origin = (@origin[0..9], $origin[-1]);
+        }
+    }
+    else {
+        my $tp =  $is_local ? Time::Piece::localtime(@_) : Time::Piece::gmtime(@_);
+        @origin = @$tp;
+    }
+
+    bless \@origin, ref $self || $self;
 }
 
 sub get_object {
